@@ -1,74 +1,155 @@
-// Full-stack Medicine Reminder App Code (React Native + Node.js)
+// Full React Native Medicine Reminder App with Calendar View and History
 
-// 1. Frontend - React Native App
-// File: App.js
-import React, { useState } from 'react';
-import { View, Text, Button, TextInput, Alert } from 'react-native';
-import * as Notifications from 'expo-notifications';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TextInput, Button, FlatList, Alert, Platform, TouchableOpacity } from 'react-native';
+import PushNotification from 'react-native-push-notification';
+import { NavigationContainer } from '@react-navigation/native';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Calendar } from 'react-native-calendars';
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-  }),
-});
+const Tab = createBottomTabNavigator();
 
-export default function App() {
-  const [medicine, setMedicine] = useState('');
+const generateDateString = () => {
+  const now = new Date();
+  return now.toISOString().split('T')[0];
+};
+
+const HomeScreen = () => {
+  const [medName, setMedName] = useState('');
   const [time, setTime] = useState('');
+  const [reminders, setReminders] = useState([]);
+  const [history, setHistory] = useState({});
 
-  const scheduleNotification = async () => {
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'Medicine Reminder',
-        body: `Time to take your ${medicine}!`,
+  useEffect(() => {
+    PushNotification.configure({
+      onNotification: function (notification) {
+        console.log('Notification:', notification);
       },
-      trigger: { seconds: parseInt(time) * 60 },
+      requestPermissions: Platform.OS === 'ios',
     });
-    Alert.alert('Reminder Set!', `Reminder for ${medicine} in ${time} minutes.`);
+  }, []);
+
+  const scheduleNotification = (med, when) => {
+    PushNotification.localNotificationSchedule({
+      message: `Time to take your medicine: ${med}`,
+      date: new Date(Date.now() + parseInt(when) * 60000),
+    });
+  };
+
+  const addReminder = () => {
+    if (!medName || !time) {
+      Alert.alert('Error', 'Please enter medicine name and time in minutes');
+      return;
+    }
+    const newReminder = {
+      id: Date.now().toString(),
+      medName,
+      time,
+      date: generateDateString(),
+    };
+    setReminders([...reminders, newReminder]);
+    scheduleNotification(medName, time);
+    setMedName('');
+    setTime('');
+  };
+
+  const markAsTaken = (item) => {
+    const date = item.date;
+    setHistory({
+      ...history,
+      [date]: [...(history[date] || []), item.medName],
+    });
+    Alert.alert('Marked', `${item.medName} marked as taken on ${date}`);
   };
 
   return (
     <View style={{ padding: 20 }}>
-      <Text>Medicine Name:</Text>
-      <TextInput value={medicine} onChangeText={setMedicine} style={{ borderBottomWidth: 1 }} />
-      <Text>Reminder Time (minutes):</Text>
-      <TextInput value={time} onChangeText={setTime} keyboardType="numeric" style={{ borderBottomWidth: 1 }} />
-      <Button title="Set Reminder" onPress={scheduleNotification} />
+      <Text style={{ fontSize: 20, marginBottom: 10 }}>Set Medicine Reminder</Text>
+      <TextInput
+        placeholder="Medicine Name"
+        value={medName}
+        onChangeText={setMedName}
+        style={{ borderWidth: 1, padding: 10, marginBottom: 10 }}
+      />
+      <TextInput
+        placeholder="Time (in minutes)"
+        value={time}
+        onChangeText={setTime}
+        keyboardType="numeric"
+        style={{ borderWidth: 1, padding: 10, marginBottom: 10 }}
+      />
+      <Button title="Add Reminder" onPress={addReminder} />
+      <Text style={{ marginTop: 20, fontWeight: 'bold' }}>Upcoming Reminders:</Text>
+      <FlatList
+        data={reminders}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => (
+          <TouchableOpacity onPress={() => markAsTaken(item)}>
+            <Text style={{ marginTop: 10 }}>
+              {item.medName} - in {item.time} min (Date: {item.date})
+            </Text>
+          </TouchableOpacity>
+        )}
+      />
     </View>
   );
-}
+};
 
-// 2. Backend - Node.js + Express API
-// File: server.js
-const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-const app = express();
-app.use(express.json());
-app.use(cors());
+const CalendarScreen = () => {
+  const [selectedDate, setSelectedDate] = useState(generateDateString());
 
-mongoose.connect('mongodb://localhost:27017/medicine_reminder', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-});
+  return (
+    <View style={{ padding: 20 }}>
+      <Text style={{ fontSize: 20, marginBottom: 10 }}>Calendar</Text>
+      <Calendar
+        onDayPress={(day) => setSelectedDate(day.dateString)}
+        markedDates={{
+          [selectedDate]: { selected: true, marked: true },
+        }}
+      />
+      <Text style={{ marginTop: 20 }}>Selected Date: {selectedDate}</Text>
+    </View>
+  );
+};
 
-const ReminderSchema = new mongoose.Schema({
-  medicine: String,
-  time: Number,
-});
-const Reminder = mongoose.model('Reminder', ReminderSchema);
+const HistoryScreen = ({ route }) => {
+  const [historyData, setHistoryData] = useState({});
 
-app.post('/reminders', async (req, res) => {
-  const reminder = new Reminder(req.body);
-  await reminder.save();
-  res.send(reminder);
-});
+  useEffect(() => {
+    // Placeholder: load from storage or state
+    // Here we just simulate empty data
+    setHistoryData({});
+  }, []);
 
-app.get('/reminders', async (req, res) => {
-  const reminders = await Reminder.find();
-  res.send(reminders);
-});
+  return (
+    <View style={{ padding: 20 }}>
+      <Text style={{ fontSize: 20, marginBottom: 10 }}>Medication History</Text>
+      {Object.keys(historyData).length === 0 ? (
+        <Text>No history found</Text>
+      ) : (
+        Object.entries(historyData).map(([date, meds]) => (
+          <View key={date}>
+            <Text style={{ fontWeight: 'bold', marginTop: 10 }}>{date}</Text>
+            {meds.map((med, index) => (
+              <Text key={index}> - {med}</Text>
+            ))}
+          </View>
+        ))
+      )}
+    </View>
+  );
+};
 
-app.listen(3000, () => console.log('Server running on port 3000'));
+const App = () => {
+  return (
+    <NavigationContainer>
+      <Tab.Navigator>
+        <Tab.Screen name="Home" component={HomeScreen} />
+        <Tab.Screen name="Calendar" component={CalendarScreen} />
+        <Tab.Screen name="History" component={HistoryScreen} />
+      </Tab.Navigator>
+    </NavigationContainer>
+  );
+};
+
+export default App;
